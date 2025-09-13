@@ -25,3 +25,4 @@ __pychache__
 *envrc
 .venv
 *.egg-info/
+*.log
