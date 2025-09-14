@@ -2,7 +2,25 @@ import os
 import psycopg2
 import pytest
 from dotenv import load_dotenv
+from personal_time_manager_misc.database.db_handler import DatabaseHandler
+from personal_time_manager_misc.apis.google_calendar_meet import GoogleCalendarManager
+from personal_time_manager_misc.apis.zoom_meeting import ZoomMeetingManager
 
+@pytest.fixture
+def zoom_meeting_manager() -> ZoomMeetingManager:
+    return ZoomMeetingManager()
+
+@pytest.fixture
+def db_handler() -> DatabaseHandler:
+    """Provides a fresh DatabaseHandler instance for each test."""
+    return DatabaseHandler()
+
+@pytest.fixture
+def google_calendar_manager() -> GoogleCalendarManager:
+    os.chdir("../..")
+    return GoogleCalendarManager()
+
+#TODO: finish this
 @pytest.fixture(scope="function")
 def test_db_session():
     """

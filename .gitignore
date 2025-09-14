@@ -26,3 +26,5 @@ __pychache__
 .venv
 *.egg-info/
 *.log
+credentials.json
+creds_old.json

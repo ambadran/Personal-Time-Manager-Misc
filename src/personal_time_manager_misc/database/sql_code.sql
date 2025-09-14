@@ -25,3 +25,13 @@ CREATE TRIGGER on_new_timetable_run_insert
 AFTER INSERT ON timetable_runs
 FOR EACH ROW
 EXECUTE FUNCTION notify_new_timetable_run();
+
+CREATE TABLE calendar_events (
+    id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY,
+    timetable_run_id BIGINT NOT NULL REFERENCES timetable_runs(id),
+    event_key TEXT NOT NULL, -- A unique key we generate from the event data
+    google_event_id TEXT NOT NULL, -- The ID returned by the Google Calendar API
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (timetable_run_id, event_key)
+);

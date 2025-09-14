@@ -200,3 +200,56 @@ class DatabaseHandler:
         except psycopg2.Error as e:
             logger.error(f"Failed to update meeting link for tuition ID {tuition_id}: {e}")
             return False
+
+    def get_all_calendar_events(self) -> List[Dict[str, Any]]:
+        """Fetches all records from the calendar_events table."""
+        events = []
+        sql = "SELECT id, timetable_run_id, event_key, google_event_id FROM calendar_events;"
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                    for row in cur.fetchall():
+                        events.append({
+                            "id": row[0],
+                            "timetable_run_id": row[1],
+                            "event_key": row[2],
+                            "google_event_id": row[3]
+                        })
+            return events
+        except psycopg2.Error as e:
+            logger.error(f"Database error fetching all calendar events: {e}")
+            return []
+
+    def clear_calendar_events(self) -> bool:
+        """
+        Deletes all records from the calendar_events table.
+        TRUNCATE is faster and resets the ID sequence.
+        """
+        sql = "TRUNCATE TABLE calendar_events RESTART IDENTITY;"
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                conn.commit()
+            logger.info("Successfully cleared the calendar_events table.")
+            return True
+        except psycopg2.Error as e:
+            logger.error(f"Failed to clear calendar_events table: {e}")
+            return False
+
+    def save_calendar_event_mapping(self, run_id: int, event_key: str, google_event_id: str) -> bool:
+        """Saves a new mapping between a timetable event and a Google Calendar event."""
+        sql = """
+            INSERT INTO calendar_events (timetable_run_id, event_key, google_event_id)
+            VALUES (%s, %s, %s);
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (run_id, event_key, google_event_id))
+                conn.commit()
+            return True
+        except psycopg2.Error as e:
+            logger.error(f"Failed to save calendar event mapping for key {event_key}: {e}")
+            return False

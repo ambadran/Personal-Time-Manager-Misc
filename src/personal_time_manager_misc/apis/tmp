@@ -1,0 +1,76 @@
+import os
+from datetime import datetime, timedelta
+from dateutil.parser import isoparse # Make sure to have python-dateutil installed
+from google.oauth2 import service_account
+from googleapiclient.discovery import build, Resource
+from googleapiclient.errors import HttpError
+from ..common.logger import logger
+
+class GoogleCalendarManager:
+    # ... __init__ and _authenticate methods are unchanged ...
+    
+    def _build_event_body(self, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None, timezone: str = "Africa/Cairo"):
+        """Helper to construct the event dictionary for the API."""
+        event_body = {
+            'summary': summary,
+            'start': {'dateTime': start_time_iso, 'timeZone': timezone},
+            'end': {'dateTime': end_time_iso, 'timeZone': timezone},
+            'extendedProperties': {
+                'private': {'ptm_event_key': event_key}
+            }
+        }
+        
+        # --- CHANGE: Add recurrence rule if an end date is provided ---
+        if recurrence_end_date_iso:
+            try:
+                # The RRULE UNTIL format must be YYYYMMDDTHHMMSSZ (no hyphens or colons)
+                end_date_dt = isoparse(recurrence_end_date_iso)
+                until_format = end_date_dt.strftime('%Y%m%dT%H%M%SZ')
+                
+                # Create a rule for a weekly recurring event
+                event_body['recurrence'] = [f"RRULE:FREQ=WEEKLY;UNTIL={until_format}"]
+                logger.debug(f"Added recurrence rule to '{summary}'")
+            except Exception as e:
+                logger.error(f"Could not parse recurrence date '{recurrence_end_date_iso}'. Error: {e}")
+        
+        return event_body
+
+    def list_events(self, time_min_iso: str, time_max_iso: str) -> dict[str, dict]:
+        # ... This method is unchanged ...
+        pass
+
+    def create_event(self, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None):
+        """Creates a new event, now with an optional recurrence rule."""
+        if not self.service:
+            return None
+        
+        # --- CHANGE: Pass recurrence date to the builder ---
+        event_body = self._build_event_body(event_key, summary, start_time_iso, end_time_iso, recurrence_end_date_iso)
+        try:
+            created_event = self.service.events().insert(
+                calendarId=self.calendar_id, body=event_body).execute()
+            logger.info(f"Created event '{summary}': {created_event.get('htmlLink')}")
+            return created_event
+        except Exception as e:
+            logger.error(f"Failed to create event '{summary}': {e}")
+            return None
+
+    def update_event(self, event_id: str, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None):
+        """Updates an existing event, now with an optional recurrence rule."""
+        if not self.service:
+            return None
+            
+        # --- CHANGE: Pass recurrence date to the builder ---
+        event_body = self._build_event_body(event_key, summary, start_time_iso, end_time_iso, recurrence_end_date_iso)
+        try:
+            updated_event = self.service.events().update(
+                calendarId=self.calendar_id, eventId=event_id, body=event_body).execute()
+            logger.info(f"Updated event '{summary}'.")
+            return updated_event
+        except Exception as e:
+            logger.error(f"Failed to update event '{summary}': {e}")
+            return None
+
+    def delete_event(self, event_id: str):
+        # ... This method is unchanged ...
+        pass

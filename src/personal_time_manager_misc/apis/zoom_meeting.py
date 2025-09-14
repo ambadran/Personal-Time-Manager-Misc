@@ -5,6 +5,8 @@ import os
 import requests
 import datetime as dt
 from dotenv import load_dotenv
+from ..common.logger import logger
+from requests.exceptions import HTTPError
 
 class ZoomMeetingManager:
     """
@@ -16,15 +18,15 @@ class ZoomMeetingManager:
 
         """
         load_dotenv()
-        if not account_id:
-            self.account_id = os.environ.get("ZOOM_ACCOUNT_ID")
-        if not client_id:
-            self.client_id = os.environ.get("ZOOM_CLIENT_ID")
-        if not client_secret:
-            self.client_secret = os.environ.get("ZOOM_CLIENT_SECRET")
+        self.account_id = account_id or os.environ.get("ZOOM_ACCOUNT_ID")
+        self.client_id = client_id or os.environ.get("ZOOM_CLIENT_ID")
+        self.client_secret = client_secret or os.environ.get("ZOOM_CLIENT_SECRET")
+
+        if not all([self.account_id, self.client_id, self.client_secret]):
+            raise ValueError("Zoom credentials (ACCOUNT_ID, CLIENT_ID, CLIENT_SECRET) are not fully configured.")
 
         self.base_url = "https://api.zoom.us/v2"
-        self._access_token = None # To cache the token
+        self._access_token = None
 
     def _get_access_token(self):
         """
@@ -42,14 +44,15 @@ class ZoomMeetingManager:
             
             token_data = response.json()
             self._access_token = token_data["access_token"]
-            print("Successfully obtained new zoom access token.")
+            logger.info("Successfully obtained new zoom access token.")
             return self._access_token
             
         except requests.exceptions.HTTPError as http_err:
-            raise ValueError(f"HTTP error occurred while getting token: {http_err}\nResponse content: {response.content.decode()}")
-
+            logger.critical(f"HTTP error occurred while getting Zoom token: {http_err}\nResponse: {response.text}")
+            return None
         except Exception as err:
-            print(f"An other error occurred: {err}")
+            logger.critical(f"An unexpected error occurred while getting Zoom token: {err}")
+            return None
             
         return None
 
@@ -59,7 +62,7 @@ class ZoomMeetingManager:
         """
         token = self._get_access_token()
         if not token:
-            print("Failed to create meeting because access token could not be obtained.")
+            logger.error("Failed to create meeting: could not get access token.")
             return None
             
         headers = {
@@ -81,7 +84,7 @@ class ZoomMeetingManager:
         }
 
         if recurrence_end_date_iso:
-            print("creating recurring meeting")
+            logger.info(f"Creating recurring meeting for '{topic}'")
             # --- Logic for a RECURRING meeting ---
             payload["type"] = 8  # '8' for a recurring meeting
             payload["start_time"] = start_time_iso
@@ -111,20 +114,15 @@ class ZoomMeetingManager:
             response.raise_for_status()
 
             meeting_data = response.json()
-            print("\nZoom meeting created successfully!")
-            print(f"   Topic: {meeting_data['topic']}")
-            # print(f"   Join URL: {meeting_data['join_url']}")
 
-
+            logger.info(f"Zoom meeting created successfully: {meeting_data['topic']}")
             # Return both the ID and the join URL
             return meeting_data.get('id'), meeting_data.get('join_url')
 
         except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred while creating meeting: {http_err}")
-            print(f"Response content: {response.content.decode()}")
+            logger.error(f"HTTP error creating meeting: {http_err}\nResponse: {response.text}")
         except Exception as err:
-            print(f"An other error occurred: {err}")
-        
+            logger.exception(f"An unexpected error occurred creating meeting: {err}")
         return None
 
     def delete_meeting(self, meeting_id):
@@ -133,7 +131,7 @@ class ZoomMeetingManager:
         """
         token = self._get_access_token()
         if not token:
-            print(f"Failed to delete meeting {meeting_id}: access token could not be obtained.")
+            logger.error(f"Failed to delete meeting {meeting_id}: could not get access token.")
             return False
 
         headers = {"Authorization": f"Bearer {token}"}
@@ -142,14 +140,78 @@ class ZoomMeetingManager:
         try:
             response = requests.delete(url, headers=headers)
             if response.status_code == 204:
-                print(f"\nMeeting with ID {meeting_id} was successfully deleted.")
+                logger.info(f"Meeting with ID {meeting_id} was successfully deleted.")
                 return True
+            elif response.status_code == 404:
+                logger.warning(f"Attempted to delete meeting {meeting_id}, but it was not found on Zoom.")
+                return True # If it's not there, the goal is achieved.
             else:
                 response.raise_for_status()
         except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred while deleting meeting: {http_err}")
-        
+            logger.error(f"HTTP error deleting meeting {meeting_id}: {http_err}\nResponse: {response.text}")
         return False
+
+    def delete_all_automated_tuition_meetings(self):
+        """
+        Fetches all meetings from Zoom and deletes any whose topic starts with 'Tuition '.
+        This is intended for manual cleanup only.
+        """
+        logger.info("Starting cleanup of all automated tuition meetings from Zoom...")
+        token = self._get_access_token()
+        if not token:
+            logger.critical("Cannot start cleanup: failed to get access token.")
+            return
+
+        headers = {"Authorization": f"Bearer {token}"}
+        all_meetings = []
+        next_page_token = ''
+
+        try:
+            while True:
+                params = {'page_size': 300}
+                if next_page_token:
+                    params['next_page_token'] = next_page_token
+                
+                # FIX: This method requires the specific user_id.
+                url = f"{self.base_url}/users/me/meetings"
+                response = requests.get(url, headers=headers, params=params)
+                response.raise_for_status()
+                data = response.json()
+               
+                all_meetings.extend(data.get('meetings', []))
+                next_page_token = data.get('next_page_token')
+                if not next_page_token:
+                    break
+            
+            logger.info(f"Found a total of {len(all_meetings)} meetings on the Zoom account.")
+
+        except HTTPError as http_err:
+            # This is the specific block to catch web errors
+            logger.critical("An HTTP error occurred while trying to list Zoom meetings.")
+            logger.critical(f"Request URL: {http_err.request.url}")
+            logger.critical(f"Status Code: {http_err.response.status_code}")
+            # This is the key: print the detailed error message from Zoom's server
+            logger.critical(f"Response Body: {http_err.response.text}")
+            return # Abort the function
+            
+        except Exception as e:
+            # General catch-all for other unexpected errors (e.g., network issues)
+            logger.critical(f"A non-HTTP error occurred while listing Zoom meetings. Aborting. Error: {e}")
+            return
+        
+        meetings_to_delete = [m for m in all_meetings if m.get('topic', '').startswith("Tuition ")]
+        if not meetings_to_delete:
+            logger.info("No automated tuition meetings found to delete.")
+            return
+
+        logger.warning(f"Found {len(meetings_to_delete)} meetings that will be deleted.")
+        deleted_count = 0
+        for meeting in meetings_to_delete:
+            if self.delete_meeting(meeting['id']):
+                deleted_count += 1
+            
+        logger.info(f"Cleanup complete. Successfully deleted {deleted_count} of {len(meetings_to_delete)} targeted meetings.")
+
 
 # --- EXAMPLE USAGE ---
 if __name__ == "__main__":

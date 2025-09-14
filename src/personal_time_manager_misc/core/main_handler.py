@@ -4,6 +4,7 @@ This file initiates and executes everything when a new timetable run is passed s
 from ..database.db_handler import DatabaseHandler
 from ..common.logger import logger
 from .tuition_meeting import HandleTuitionMeetings
+from .calendar_handler import HandleTuitionGoogleCalendarEvents
 
 class HandleTimeTable:
     """
@@ -32,10 +33,13 @@ class HandleTimeTable:
             logger.exception(f"An error occurred during the tuition sync process: {e}")
 
         # Step 3: Google Calendar (Placeholder)
-        logger.info("Google Calendar sync would run here.")
+        try:
+            HandleTuitionGoogleCalendarEvents(self.db_handler)
+        except Exception as e:
+            logger.exception(f"An error occurred during the Google Calendar sync process: {e}")
 
         # Step 4: Apple Calendar (Placeholder)
-        logger.info("Apple Calendar sync would run here.")
+        # logger.info("Apple Calendar sync would run here.")
 
     def _validate_trigger(self):
         """
