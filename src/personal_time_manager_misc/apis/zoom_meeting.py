@@ -46,13 +46,11 @@ class ZoomMeetingManager:
             self._access_token = token_data["access_token"]
             logger.info("Successfully obtained new zoom access token.")
             return self._access_token
-            
-        except requests.exceptions.HTTPError as http_err:
-            logger.critical(f"HTTP error occurred while getting Zoom token: {http_err}\nResponse: {response.text}")
-            return None
+
+        except HTTPError as http_err:
+            logger.critical(f"HTTP error getting Zoom token: {http_err}\nResponse: {http_err.response.text}")
         except Exception as err:
             logger.critical(f"An unexpected error occurred while getting Zoom token: {err}")
-            return None
             
         return None
 
@@ -119,7 +117,7 @@ class ZoomMeetingManager:
             # Return both the ID and the join URL
             return meeting_data.get('id'), meeting_data.get('join_url')
 
-        except requests.exceptions.HTTPError as http_err:
+        except HTTPError as http_err:
             logger.error(f"HTTP error creating meeting: {http_err}\nResponse: {response.text}")
         except Exception as err:
             logger.exception(f"An unexpected error occurred creating meeting: {err}")

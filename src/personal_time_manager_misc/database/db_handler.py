@@ -253,3 +253,19 @@ class DatabaseHandler:
         except psycopg2.Error as e:
             logger.error(f"Failed to save calendar event mapping for key {event_key}: {e}")
             return False
+
+    def clear_all_tuition_meeting_links(self) -> bool:
+        """Sets the meeting_link column to NULL for all records in the tuition table."""
+        logger.info("Clearing all meeting links from the tuition table.")
+        sql = "UPDATE tuition SET meeting_link = NULL;"
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(sql)
+                conn.commit()
+            logger.info("Successfully cleared tuition meeting links.")
+            return True
+        except psycopg2.Error as e:
+            logger.error(f"Failed to clear tuition meeting links: {e}")
+            return False
+
