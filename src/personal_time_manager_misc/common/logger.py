@@ -3,15 +3,31 @@ Universal Logger logic for all the application. it will print into terminal and 
 '''
 import logging
 import sys
+import os
+from pathlib import Path
 
-# 1. Create a logger instance
-logger = logging.getLogger('PTM-Misc')
-logger.setLevel(logging.INFO) # Set the lowest level of messages to handle
+class DirectoryFormatter(logging.Formatter):
+    def format(self, record):
+        # Extract the directory name from the path
+        if hasattr(record, 'pathname') and record.pathname:
+            # Get the parent directory name of the file
+            file_path = Path(record.pathname)
+            # Get the immediate parent directory name
+            directory_name = file_path.parent.name
+            record.directory = directory_name
+        else:
+            record.directory = 'Unknown'
+        
+        return super().format(record)
 
-# 2. Create a formatter to define the log message structure
-formatter = logging.Formatter(
-    '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%m-%d %H:%M:%S'
+# 1. Create a logger instance with the desired name
+logger = logging.getLogger('ptm-misc')
+logger.setLevel(logging.INFO)
+
+# 2. Create a custom formatter with directory information
+formatter = DirectoryFormatter(
+    '%(asctime)s - %(name)s - %(directory)s - %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
 )
 
 # 3. Create a handler to write logs to a file
@@ -24,7 +40,6 @@ stream_handler = logging.StreamHandler(sys.stdout)
 stream_handler.setFormatter(formatter)
 
 # 5. Add both handlers to the logger
-# Avoid adding handlers multiple times if this module is imported more than once
 if not logger.handlers:
     logger.addHandler(file_handler)
     logger.addHandler(stream_handler)

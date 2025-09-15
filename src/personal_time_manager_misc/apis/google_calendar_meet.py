@@ -30,14 +30,14 @@ class GoogleCalendarManager:
             raise ValueError("GOOGLE_CREDENTIALS_PATH is not set in the environment.")
         
         try:
-            print(os.getcwd(), 'lksjdf')
             scopes = ['https://www.googleapis.com/auth/calendar']
             creds = service_account.Credentials.from_service_account_file(
                 creds_path, scopes=scopes)
             logger.info("Successfully authenticated with Google Calendar API.")
             return build('calendar', 'v3', credentials=creds)
+
         except Exception as e:
-            logger.critical(f"Failed to authenticate with Google Calendar API: {e}")
+            logger.error(f"Error occurred in authentication:\n{e}")
             return None
 
     def _build_event_body(self, 

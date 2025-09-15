@@ -17,7 +17,12 @@ class HandleTuitionGoogleCalendarEvents:
     """
     def __init__(self, db_handler: DatabaseHandler):
         self.db_handler = db_handler
+
         self.calendar_manager = GoogleCalendarManager()
+        if not self.calendar_manager.service:
+            logger.critical(f"Failed to initiate google api instance!")
+            return None
+
         self.run_sync()
 
     def _generate_event_key(self, event: dict) -> str:
@@ -62,6 +67,8 @@ class HandleTuitionGoogleCalendarEvents:
 
         # Define the target timezone once
         target_tz = timezone(DEFAULT_TIMEZONE)
+        success_count = 0
+        fail_count = 0
         for event in tuition_events:
             try:
 
@@ -92,13 +99,16 @@ class HandleTuitionGoogleCalendarEvents:
 
                 # If creation was successful, save the new mapping to our DB
                 if created_event and 'id' in created_event:
+                    success_count += 1
                     google_event_id = created_event['id']
                     self.db_handler.save_calendar_event_mapping(
                         run_id=latest_run_id,
                         event_key=event_key,
                         google_event_id=google_event_id
                     )
+                else:
+                    fail_count += 1
             except Exception as e:
                 logger.exception(f"An error occurred while creating event '{event.get('name')}'. Skipping.")
                 
-        logger.info("Google Calendar 'clear and replace' sync finished successfully.")
+        logger.info("Google Calendar 'clear and replace' sync finished.\nSuccessfully create: {success_count} Tuition Events.\nFailed to create: {fail_count} Tuition Events.")
