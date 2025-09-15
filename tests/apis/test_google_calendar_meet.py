@@ -15,7 +15,8 @@ def test_list_events(google_calendar_manager: GoogleCalendarManager):
 
     events = google_calendar_manager.list_events(
                 time_min_iso=now_utc.isoformat(),
-                time_max_iso=one_week_later_utc.isoformat())
-    print(events)
+                time_max_iso=one_week_later_utc.isoformat(),
+                filter_by_key=False)
+    print(len(events))
 
 

@@ -71,33 +71,59 @@ class GoogleCalendarManager:
         
         return event_body
 
-    def list_events(self, time_min_iso: str, time_max_iso: str) -> dict[str, dict]:
-        """Lists all events in a given time range, keyed by our custom event_key."""
+    def list_events(self, time_min_iso: str, time_max_iso: str, filter_by_key: bool = True) -> list[dict]:
+        """
+        Lists all events in a given time range, handling pagination.
+
+        Args:
+            time_min_iso: The minimum start time for events to list.
+            time_max_iso: The maximum start time for events to list.
+            filter_by_key: If True, only returns events with the 'ptm_event_key'.
+                           If False, returns all events in the time range.
+        """
         if not self.service:
-            return {}
+            return []
         
-        events_by_key = {}
+        all_events = []
+        page_token = None
+        
         try:
-            events_result = self.service.events().list(
-                calendarId=self.calendar_id,
-                timeMin=time_min_iso,
-                timeMax=time_max_iso,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            while True:
+                events_result = self.service.events().list(
+                    calendarId=self.calendar_id,
+                    timeMin=time_min_iso,
+                    timeMax=time_max_iso,
+                    singleEvents=True,
+                    orderBy='startTime',
+                    pageToken=page_token,
+                    maxResults=250  # Get up to 250 events per page
+                ).execute()
+                
+                events_on_page = events_result.get('items', [])
+                all_events.extend(events_on_page)
+                
+                page_token = events_result.get('nextPageToken')
+                if not page_token:
+                    break # Exit loop if we're on the last page
             
-            for event in events_result.get('items', []):
-                # We only care about events that our application has created
-                private_props = event.get('extendedProperties', {}).get('private', {})
-                if 'ptm_event_key' in private_props:
-                    key = private_props['ptm_event_key']
-                    events_by_key[key] = event
-            
-            logger.info(f"Found {len(events_by_key)} existing events in the specified time range.")
-            return events_by_key
+            logger.info(f"Fetched a total of {len(all_events)} events from Google Calendar.")
+
+            if filter_by_key:
+                # Filter for events that our application owns
+                return [
+                    event for event in all_events
+                    if 'ptm_event_key' in event.get('extendedProperties', {}).get('private', {})
+                ]
+            else:
+                # Return all events for cleanup purposes
+                return [
+                            event for event in all_events 
+                            if event.get('summary', '').startswith("Tuition ")
+                        ]
+
         except Exception as e:
             logger.error(f"Failed to list calendar events: {e}")
-            return {}
+            return []
 
     def create_event(self, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None):
         """Creates a new event with our custom key."""

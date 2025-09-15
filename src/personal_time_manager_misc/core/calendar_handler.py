@@ -3,6 +3,8 @@ This file is responsible to create and sync all calendar events
 
 for now, the only calendar I need to worry about is the google calendar which should sync with the apple calendar automatically
 '''
+from datetime import datetime
+from datetime import timezone as timezone_dt
 from dateutil.parser import isoparse
 from pytz import timezone
 from ..database.db_handler import DatabaseHandler
@@ -29,21 +31,55 @@ class HandleTuitionGoogleCalendarEvents:
         """Creates a stable, unique key for a tuition event from the timetable."""
         return f"ptm-tuition-{event['id']}"
 
+    def clean_up_prev_tuition_events(self):
+        try:
+            logger.info("Starting Clean up routine...")
+            # 1a. Fetch all event mappings we have stored
+            # events_to_delete = self.db_handler.get_all_calendar_events()
+            # logger.info(f"Found {len(events_to_delete)} existing calendar events to delete.")
+            # 1. Define a wide time range to find all possible events
+            time_min_iso = datetime.now(timezone_dt.utc).isoformat()
+            time_max_iso = RECURRENCE_END_DATE_ISO
+            
+            # 2. List all events created by our app within that range
+            events_to_delete = self.calendar_manager.list_events(
+                time_min_iso=time_min_iso, 
+                time_max_iso=time_max_iso,
+                filter_by_key=False 
+            )
+            if not events_to_delete:
+                logger.info("No application-created events were found in the calendar.")
+                return
+
+            logger.warning(f"Found {len(events_to_delete)} events that will be permanently deleted.")
+            
+            # 1b. Delete each event from Google Calendar
+            deleted_count = 0
+            for ind, event_data in enumerate(events_to_delete):
+                event_id = event_data['id']
+                summary = event_data.get('summary', 'Untitled Event')
+                logger.info(f"Deleting event ({ind}/{len(events_to_delete)}): '{summary}' (ID: {event_id})")
+                self.calendar_manager.delete_event(event_id)
+                deleted_count += 1
+                
+            logger.info(f"Cleanup complete. Successfully deleted {deleted_count} events.")
+
+        except Exception as e:
+            logger.critical(f"The cleanup script failed with an error:\n{e}")
+            return False
+           
+        # 1c. Clear our mapping table completely
+        self.db_handler.clear_calendar_events()
+        return True
+
+
     def run_sync(self):
         logger.info("Starting Google Calendar sync with 'clear and replace' strategy...")
 
         # --- STEP 1: CLEAR ALL EXISTING EVENTS ---
+        if not self.clean_up_prev_tuition_events():
+            return
         
-        # 1a. Fetch all event mappings we have stored
-        events_to_delete = self.db_handler.get_all_calendar_events()
-        logger.info(f"Found {len(events_to_delete)} existing calendar events to delete.")
-        
-        # 1b. Delete each event from Google Calendar
-        self.calendar_manager.delete_all_events(events_to_delete)
-           
-        # 1c. Clear our mapping table completely
-        self.db_handler.clear_calendar_events()
-
         # --- STEP 2: FETCH AND FILTER NEW TIMETABLE DATA ---
         
         # 2a. Get the full timetable from the latest successful run
@@ -111,4 +147,4 @@ class HandleTuitionGoogleCalendarEvents:
             except Exception as e:
                 logger.exception(f"An error occurred while creating event '{event.get('name')}'. Skipping.")
                 
-        logger.info("Google Calendar 'clear and replace' sync finished.\nSuccessfully create: {success_count} Tuition Events.\nFailed to create: {fail_count} Tuition Events.")
+        logger.info(f"Google Calendar 'clear and replace' sync finished.\nSuccessfully create: {success_count} Tuition Events.\nFailed to create: {fail_count} Tuition Events.")
