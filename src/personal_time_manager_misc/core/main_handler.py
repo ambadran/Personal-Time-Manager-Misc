@@ -27,10 +27,11 @@ class HandleTimeTable:
         logger.info("Valid trigger detected. Starting sync processes...")
         
         # Step 2: Run Tuition Meeting sync
-        try:
-            HandleTuitionMeetings(self.db_handler)
-        except Exception as e:
-            logger.exception(f"An error occurred during the tuition sync process: {e}")
+        logger.warning("\nSKIPPING ZOOM TUITION..\n")
+        # try:
+        #     HandleTuitionMeetings(self.db_handler)
+        # except Exception as e:
+        #     logger.exception(f"An error occurred during the tuition sync process: {e}")
 
         # Step 3: Google Calendar (Placeholder)
         try:

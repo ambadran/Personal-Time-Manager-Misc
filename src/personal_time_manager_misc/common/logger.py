@@ -5,13 +5,13 @@ import logging
 import sys
 
 # 1. Create a logger instance
-logger = logging.getLogger('personal_time_manager_misc')
+logger = logging.getLogger('PTM-Misc')
 logger.setLevel(logging.INFO) # Set the lowest level of messages to handle
 
 # 2. Create a formatter to define the log message structure
 formatter = logging.Formatter(
     '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%m-%d %H:%M:%S'
 )
 
 # 3. Create a handler to write logs to a file

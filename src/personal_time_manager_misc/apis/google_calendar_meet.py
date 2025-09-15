@@ -118,8 +118,14 @@ class GoogleCalendarManager:
                 calendarId=self.calendar_id, body=event_body).execute()
             logger.info(f"Created event '{summary}': {created_event.get('htmlLink')}")
             return created_event
+        except HttpError as http_err:
+            logger.error(f"An HTTP error occurred while creating event '{summary}'.")
+            logger.error(f"Status Code: {http_err.resp.status}")
+            # The content is bytes, so we decode it for a readable log message
+            logger.error(f"Response Body: {http_err.content.decode()}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to create event '{summary}': {e}")
+            logger.exception(f"An unexpected non-HTTP error occurred creating event '{summary}': {e}")
             return None
 
     def update_event(self, event_id: str, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None):
@@ -141,8 +147,14 @@ class GoogleCalendarManager:
                 calendarId=self.calendar_id, eventId=event_id, body=event_body).execute()
             logger.info(f"Updated event '{summary}'.")
             return updated_event
+        except HttpError as http_err:
+            logger.error(f"An HTTP error occurred while updating event '{summary}'.")
+            logger.error(f"Status Code: {http_err.resp.status}")
+            # The content is bytes, so we decode it for a readable log message
+            logger.error(f"Response Body: {http_err.content.decode()}")
+            return None
         except Exception as e:
-            logger.error(f"Failed to update event '{summary}': {e}")
+            logger.exception(f"An unexpected non-HTTP error occurred updating event '{summary}': {e}")
             return None
 
     def delete_event(self, event_id: str):
