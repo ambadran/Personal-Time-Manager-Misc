@@ -19,4 +19,10 @@ def test_list_events(google_calendar_manager: GoogleCalendarManager):
                 filter_by_key=False)
     print(len(events))
 
+def test_list_unique_events(google_calendar_manager: GoogleCalendarManager):
+    events = google_calendar_manager.list_unique_events()
+    print(events)
+    print(len(events))
 
+def test_delete_all(google_calendar_manager: GoogleCalendarManager):
+    google_calendar_manager.delete_all_automated_tuition_events()

@@ -2,7 +2,7 @@
 
 '''
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from dateutil.parser import isoparse # Make sure to have python-dateutil installed
 from google.oauth2 import service_account
@@ -125,6 +125,38 @@ class GoogleCalendarManager:
             logger.error(f"Failed to list calendar events: {e}")
             return []
 
+    def list_unique_events(self, topic_prefix: str = "Tuition ") -> dict[str, str] | None:
+        """
+        Finds unique recurring event series based on a topic prefix.
+
+        Args:
+            topic_prefix (str): The prefix to identify events managed by this app.
+        
+        Returns:
+            A dictionary mapping each unique event summary (topic) to its event ID,
+            or None if an error occurs.
+        """
+        # We need to look far into the future to find all occurrences of recurring events
+        time_min_iso = datetime.now(timezone.utc).isoformat()
+        time_max_iso = (datetime.now(timezone.utc) + timedelta(days=730)).isoformat() # Look 2 years ahead
+        
+        all_occurrences = self.list_events(time_min_iso, time_max_iso)
+        if all_occurrences is None:
+            return None
+
+        unique_event_series = {}
+        for event in all_occurrences:
+            summary = event.get('summary')
+            # The 'recurringEventId' is the key to identifying a unique series
+            event_id_for_series = event.get('recurringEventId', event.get('id'))
+            
+            if summary and summary.startswith(topic_prefix):
+                if summary not in unique_event_series:
+                    unique_event_series[summary] = event_id_for_series
+        
+        logger.info(f"Found {len(unique_event_series)} unique event series with prefix '{topic_prefix}'.")
+        return unique_event_series
+
     def create_event(self, event_key: str, summary: str, start_time_iso: str, end_time_iso: str, recurrence_end_date_iso: str | None = None):
         """Creates a new event with our custom key."""
         if not self.service:
@@ -183,7 +215,7 @@ class GoogleCalendarManager:
             logger.exception(f"An unexpected non-HTTP error occurred updating event '{summary}': {e}")
             return None
 
-    def delete_event(self, event_id: str):
+    def delete_event(self, event_id: str) -> bool:
         """Deletes an event by its ID."""
         if not self.service:
             return
@@ -192,14 +224,43 @@ class GoogleCalendarManager:
             self.service.events().delete(
                 calendarId=self.calendar_id, eventId=event_id).execute()
             logger.info(f"Deleted event ID: {event_id}")
+            return True
         except HttpError as e:
             # If the event is already gone, that's fine. Ignore the error.
             if e.resp.status == 410:
                 logger.warning(f"Attempted to delete event {event_id}, but it was already gone.")
+                return True
             else:
                 logger.error(f"Failed to delete event {event_id}: {e}")
+                return False
 
-    def delete_all_events(self, events_to_delete):
-        for event in events_to_delete:
-            self.delete_event(event['google_event_id'])
+    
+    def delete_all_automated_tuition_events(self):
+        """
+        Uses list_unique_events to find and delete all automated tuition events.
+        """
+        logger.info("Starting smart cleanup of all automated tuition events from Google Calendar...")
+        
+        # 1. Use the new method to get unique event series
+        unique_series = self.list_unique_events(topic_prefix="Tuition ")
+
+        if unique_series is None:
+            logger.critical("Could not retrieve unique events for cleanup. Aborting.")
+            return
+
+        if not unique_series:
+            logger.info("No automated tuition events found to delete.")
+            return
+
+        # 2. Loop through the unique series and delete each one
+        logger.warning(f"Found {len(unique_series)} unique event series that will be deleted.")
+        deleted_count = 0
+        for summary, event_id in unique_series.items():
+            logger.info(f"Deleting entire series for event: '{summary}'")
+            if self.delete_event(event_id):
+                deleted_count += 1
+            
+        logger.info(f"Cleanup complete. Successfully deleted {deleted_count} of {len(unique_series)} targeted event series.")
+
+
  

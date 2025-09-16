@@ -3,7 +3,8 @@
 '''
 import os
 import requests
-import datetime as dt
+from datetime import datetime, timedelta, timezone
+from dateutil.parser import isoparse
 from dotenv import load_dotenv
 from ..common.logger import logger
 from requests.exceptions import HTTPError
@@ -58,6 +59,24 @@ class ZoomMeetingManager:
         """
         Creates a new Zoom meeting.
         """
+        # Reschedule past events ---
+        try:
+            start_time_dt = isoparse(start_time_iso)
+            # Create a 'now' object that is timezone-aware in the same timezone as the event
+            now_aware = datetime.now(start_time_dt.tzinfo)
+
+            if start_time_dt < now_aware:
+                original_time = start_time_dt.strftime('%Y-%m-%d %H:%M')
+                start_time_dt += timedelta(days=7)
+                start_time_iso = start_time_dt.isoformat()
+                logger.warning(
+                    f"Start time for '{topic}' ({original_time}) was in the past. "
+                    f"Rescheduling to the same time next week: {start_time_iso}"
+                )
+        except Exception as e:
+            logger.error(f"Could not parse or adjust start time '{start_time_iso}'. Error: {e}")
+            return None
+
         token = self._get_access_token()
         if not token:
             logger.error("Failed to create meeting: could not get access token.")
@@ -88,7 +107,7 @@ class ZoomMeetingManager:
             payload["start_time"] = start_time_iso
             
             # Parse start time to figure out the day of the week
-            start_dt = dt.datetime.fromisoformat(start_time_iso.replace('Z', '+00:00'))
+            start_dt = datetime.fromisoformat(start_time_iso.replace('Z', '+00:00'))
             
             # Zoom's weekly_days format: 1=Sunday, 2=Monday, ..., 7=Saturday
             # Python's isoweekday() format: 1=Monday, ..., 6=Saturday, 7=Sunday
@@ -149,74 +168,104 @@ class ZoomMeetingManager:
             logger.error(f"HTTP error deleting meeting {meeting_id}: {http_err}\nResponse: {response.text}")
         return False
 
-    def delete_all_automated_tuition_meetings(self):
+    def list_meetings(self, meeting_type: str = 'upcoming') -> list[dict] | None:
         """
-        Fetches all meetings from Zoom and deletes any whose topic starts with 'Tuition '.
-        This is intended for manual cleanup only.
+        Lists all meetings for the user, handling pagination.
+
+        Args:
+            meeting_type (str): The type of meetings to list ('upcoming', 'live', etc.).
+        
+        Returns:
+            A list of meeting dictionaries, or None if an error occurs.
         """
-        logger.info("Starting cleanup of all automated tuition meetings from Zoom...")
         token = self._get_access_token()
         if not token:
-            logger.critical("Cannot start cleanup: failed to get access token.")
-            return
+            logger.error("Cannot list meetings: failed to get access token.")
+            return None
 
         headers = {"Authorization": f"Bearer {token}"}
         all_meetings = []
         next_page_token = ''
-
         try:
             while True:
-                params = {'page_size': 300}
+                params = {'page_size': 300, 'type': meeting_type}
                 if next_page_token:
                     params['next_page_token'] = next_page_token
                 
-                # FIX: This method requires the specific user_id.
                 url = f"{self.base_url}/users/me/meetings"
                 response = requests.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json()
-               
+                
                 all_meetings.extend(data.get('meetings', []))
                 next_page_token = data.get('next_page_token')
                 if not next_page_token:
                     break
             
-            logger.info(f"Found a total of {len(all_meetings)} meetings on the Zoom account.")
-
+            logger.info(f"Found a total of {len(all_meetings)} {meeting_type} meetings on the Zoom account.")
+            return all_meetings
         except HTTPError as http_err:
-            # This is the specific block to catch web errors
-            logger.critical("An HTTP error occurred while trying to list Zoom meetings.")
-            logger.critical(f"Request URL: {http_err.request.url}")
-            logger.critical(f"Status Code: {http_err.response.status_code}")
-            # This is the key: print the detailed error message from Zoom's server
-            logger.critical(f"Response Body: {http_err.response.text}")
-            return # Abort the function
-            
-        except Exception as e:
-            # General catch-all for other unexpected errors (e.g., network issues)
-            logger.critical(f"A non-HTTP error occurred while listing Zoom meetings. Aborting. Error: {e}")
-            return
+            logger.critical(f"HTTP error listing Zoom meetings: {http_err.response.text}")
+            return None
+
+    def list_unique_meetings(self, topic_prefix: str = "Tuition ") -> dict[str, str] | None:
+        """
+        Finds unique recurring meeting series based on a topic prefix.
+
+        Args:
+            topic_prefix (str): The prefix to identify meetings managed by this app.
         
-        meetings_to_delete = [m for m in all_meetings if m.get('topic', '').startswith("Tuition ")]
-        if not meetings_to_delete:
+        Returns:
+            A dictionary mapping each unique topic to one of its meeting IDs,
+            or None if an error occurs.
+        """
+        all_occurrences = self.list_meetings(meeting_type='upcoming')
+        if all_occurrences is None:
+            return None # An error occurred during fetching
+
+        unique_meeting_series = {}
+        for meeting in all_occurrences:
+            topic = meeting.get('topic')
+            if topic and topic.startswith(topic_prefix):
+                if topic not in unique_meeting_series:
+                    unique_meeting_series[topic] = meeting['id']
+        
+        logger.info(f"Found {len(unique_meeting_series)} unique meeting series with prefix '{topic_prefix}'.")
+        return unique_meeting_series
+
+    def delete_all_automated_tuition_meetings(self):
+        """
+        Uses the list_meetings method to find and delete all automated tuition meetings.
+        """
+        logger.info("Starting cleanup of all automated tuition meetings from Zoom...")
+        
+        # 1. Use the new method to get unique meeting series
+        unique_series = self.list_unique_meetings(topic_prefix="Tuition ")
+
+        if unique_series is None:
+            logger.critical("Could not retrieve unique meetings for cleanup. Aborting.")
+            return
+
+        if not unique_series:
             logger.info("No automated tuition meetings found to delete.")
             return
 
-        logger.warning(f"Found {len(meetings_to_delete)} meetings that will be deleted.")
+        # 2. Loop through the unique series and delete each one
+        logger.warning(f"Found {len(unique_series)} unique meeting series that will be deleted.")
         deleted_count = 0
-        for meeting in meetings_to_delete:
-            if self.delete_meeting(meeting['id']):
+        for topic, meeting_id in unique_series.items():
+            logger.info(f"Deleting entire series for topic: '{topic}'")
+            if self.delete_meeting(meeting_id):
                 deleted_count += 1
             
-        logger.info(f"Cleanup complete. Successfully deleted {deleted_count} of {len(meetings_to_delete)} targeted meetings.")
-
+        logger.info(f"Cleanup complete. Successfully deleted {deleted_count} of {len(unique_series)} targeted meeting series.")
 
 # --- EXAMPLE USAGE ---
 if __name__ == "__main__":
     zoom_manager = ZoomMeetingManager()
     
     meeting_topic = "Test"
-    start_time = dt.datetime.now(dt.timezone.utc) + dt.timedelta(days=2)
+    start_time = datetime.now(timezone.utc) + timedelta(days=2)
     start_time_iso = start_time.strftime("%Y-%m-%dT%H:%M:%SZ")
     print(start_time_iso)
 

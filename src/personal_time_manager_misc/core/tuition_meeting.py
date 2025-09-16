@@ -40,7 +40,7 @@ class HandleTuitionZoomMeetings:
                 event_data['start_time'] = isoparse(event_data['start_time'])
                 event_data['end_time'] = isoparse(event_data['end_time'])
                 tuition = ScheduledTuition(**event_data)
-                
+ 
                 # Create the new meeting on Zoom
                 creation_result = self.zoom_manager.create_meeting(
                     topic=tuition.zoom_meet_topic,
@@ -53,10 +53,19 @@ class HandleTuitionZoomMeetings:
                 if creation_result:
                     meeting_id, join_url = creation_result
                     new_meeting_data = {'meeting_link': join_url, 'meeting_id': str(meeting_id)}
-                    self.db_handler.update_tuition_meeting_link(
+
+                    update_success = self.db_handler.update_tuition_meeting_link(
                         tuition_id=tuition.db_tuition_id,
                         meeting_data=new_meeting_data
                     )
+                    
+                    if not update_success:
+                        logger.warning(
+                            f"Zoom meeting for '{tuition.zoom_meet_topic}' was created successfully, "
+                            f"but FAILED to save the link to the database. "
+                            f"Manual intervention may be required to link meeting ID {meeting_id}."
+                        )
+                    
             except Exception as e:
                 logger.exception(f"Failed to process tuition event '{event_data.get('name')}'. Skipping.")
 
