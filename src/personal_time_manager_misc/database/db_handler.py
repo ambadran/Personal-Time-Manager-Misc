@@ -194,9 +194,22 @@ class DatabaseHandler:
                 with conn.cursor() as cur:
                     # psycopg2 can automatically convert a Python dict to a JSONB string
                     cur.execute(sql, (json.dumps(meeting_data), tuition_id))
-                conn.commit()
-            logger.info(f"Successfully updated meeting link for tuition ID: {tuition_id}")
-            return True
+
+                    # Verify that one row was actually updated
+                    if cur.rowcount == 1:
+                        conn.commit()
+                        logger.info(f"Successfully updated meeting link for tuition ID: {tuition_id}")
+                        return True
+                    else:
+                        # This case handles when the tuition_id does not exist.
+                        logger.warning(
+                            f"Attempted to update meeting link for tuition ID {tuition_id}, "
+                            "but no matching record was found. 0 rows updated."
+                            "Maybe check that timetable 'tuition_id' is up to date with latest Tuition table IDs"
+                        )
+                        # No need to commit as no changes were made.
+                        return False
+
         except psycopg2.Error as e:
             logger.error(f"Failed to update meeting link for tuition ID {tuition_id}: {e}")
             return False
