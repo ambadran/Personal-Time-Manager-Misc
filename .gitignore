@@ -22,7 +22,6 @@ __pychache__
 *.~*
 ~$*
 *.env
-*envrc
 .venv
 *.egg-info/
 *.log
