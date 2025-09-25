@@ -27,3 +27,4 @@ __pychache__
 *.log
 credentials.json
 creds_old.json
+.python-version

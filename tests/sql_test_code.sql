@@ -1,3 +1,5 @@
+NOTIFY "manual-ptm-misc-trigger", 'LATEST';
+
 INSERT INTO timetable_runs (
     run_started_at,
     status,
